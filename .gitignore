@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Build / packaging
+build/
+dist/
+wheels/
+
+# Test / tooling caches
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+devenv/
+buildenv/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Scratch dump output if you run the tool inside the repo by mistake
+/dump/
+/out_*/
