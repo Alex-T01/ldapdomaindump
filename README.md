@@ -48,7 +48,7 @@ you ever need it for comparison.
 Help can be obtained with the -h switch:
 ```
 usage: ldapdomaindump [-h] [-u USERNAME] [-p PASSWORD] [-at {NTLM,SIMPLE}]
-                      [-o DIRECTORY] [--no-html] [--no-json] [--no-grep]
+                      [-k] [-o DIRECTORY] [--no-html] [--no-json] [--no-grep]
                       [--grouped-json] [-d DELIMITER] [-r] [-n DNS_SERVER]
                       [-m] [--paged-size PAGED_SIZE] [--sequential]
                       [--shard-usn N] [--dc DC]
@@ -121,6 +121,29 @@ binds and root-DSE reads still work on 389 on such DCs — only the
 authenticated bind is refused — so a bind failure with `invalidCredentials`
 rather than `strongerAuthRequired` means the credentials are wrong (or the
 account locked), not that signing is the problem.
+
+### Kerberos (`-k`)
+Instead of NTLM/SIMPLE you can authenticate with Kerberos/GSSAPI from your
+existing ccache (`kinit user@REALM` first), like BloodHound.py's `-k`:
+
+```bash
+kinit user@LAB01.LOCAL
+ldapdomaindump -k ldaps://dc01.lab01.local:636 -o dump/
+```
+
+`-u/-p` are ignored in this mode; HOSTNAME must be the DC **FQDN** — an IP
+cannot be resolved to an SPN (`ldap/<host>`) and the bind fails with
+"Server not found in Kerberos database". A `[kerberos]` extra carries the
+optional dependencies:
+
+```bash
+pipx inject ldapdomaindump kerberos     # gssapi + cryptography
+# or: pip install 'ldapdomaindump[kerberos]'
+```
+
+`cryptography` is required on LDAPS: ldap3 binds TLS channel bindings into
+the GSSAPI exchange there. Password, pass-the-hash (`-p 'LM:NTLM'`) and
+Kerberos produce identical dumps (validated on a Server 2025 lab).
 
 ### Output formats
 By default the tool outputs all files in HTML, JSON and tab delimited output (greppable). There are also two grouped files (users_by_group and computers_by_os) for convenience. These do not have a greppable output. JSON output for grouped files is disabled by default since it creates very large files without any data that isn't present in the other files already.
@@ -224,7 +247,7 @@ ldapdomaindump -u 'CORP\user' -p 'password' dc01.corp.local -o dump/ \
 ```
 
 All classic flags are supported (`-u/-p/-at`, `-o`, `--no-html/--no-json/--no-grep`,
-`--grouped-json`, `-d`, `-r`, `-n`, `-m`). New flags: `--paged-size`,
+`--grouped-json`, `-d`, `-r`, `-n`, `-m`) plus `-k` (Kerberos). New flags: `--paged-size`,
 `--sequential`, `--shard-usn`, `--dc`, `--resolve-threads`, `--no-grouped`
 (see `ldapdomaindump -h`).
 

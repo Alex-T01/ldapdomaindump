@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.1
+- Fixed: in the default parallel mode, several binds raced on the shared
+  `Server(get_info=ALL)` object — ldap3's schema rebuild resets
+  `_schema_info = None` mid-flight, so a connection binding at that moment
+  decoded its whole result set without the schema and silently emitted
+  ints/dates/SIDs as raw strings (reproduced 3/5 runs on a Server 2025
+  lab; `--sequential` was immune). All binds now serialize on a lock in
+  `_build_connection`, the single choke point every collector uses.
+- Added `-k/--kerberos`: authenticate via GSSAPI from the existing ccache
+  (`kinit` first) instead of NTLM/SIMPLE. `-u/-p` are ignored; HOSTNAME
+  must be the DC FQDN (an IP can't be resolved to an SPN — a warning is
+  emitted). Optional dependency: `pipx inject ldapdomaindump kerberos`
+  (installs `gssapi` + `cryptography`; the latter is required for TLS
+  channel bindings on LDAPS).
+- Validated on a Server 2025 lab DC (LDAP signing required, `ldaps://`):
+  NTLM password, NTLM `LM:NTLM` pass-the-hash and Kerberos GSSAPI now
+  produce fully identical dumps (same DN sets, same attribute sets, same
+  value shapes and values outside volatile login counters).
+
 ## 0.12.0
 - `ldapdomaindump` (and `python -m ldapdomaindump`) now run the streaming
   collector by default. `ldd-stream` / `ldapdomaindump-stream` remain as

@@ -569,16 +569,36 @@ def report_attributes(config):
 # Everything below needs ldap3 / dnspython and talks to a DC. Imported lazily
 # so the module can be unit-tested (formatting + grouping) without them.
 # ===========================================================================
+_server_info_lock = threading.Lock()
+
 def _build_connection(server, args):
     import ldap3
     from ldap3 import Connection, NTLM
-    authentication = None
-    if args.user is not None:
-        authentication = 'SIMPLE' if args.authtype == 'SIMPLE' else NTLM
-    c = Connection(server, user=args.user, password=args.password, authentication=authentication,
-                   auto_referrals=False)
-    if not c.bind():
-        raise RuntimeError('Bind failed: %s' % c.result)
+    # Server(get_info=ALL) refreshes DSE+schema on every bind (read_server_info
+    # defaults to True). With the default parallel collection, several binds
+    # race on the same Server object: ldap3's _get_schema_info() first resets
+    # _schema_info = None, and a second connection binding mid-rebuild decodes
+    # its whole result set WITHOUT the schema -> ints/timedates/SIDs silently
+    # come back as raw strings (observed 3/5 runs on a Server 2025 lab). All
+    # binds that populate/refresh the shared Server info therefore serialize
+    # on this lock; every collector path goes through _build_connection, so
+    # this is the single choke point.
+    with _server_info_lock:
+        if getattr(args, 'kerberos', False):
+            c = Connection(server, authentication=ldap3.SASL,
+                           sasl_mechanism=ldap3.GSSAPI, auto_referrals=False)
+        else:
+            authentication = None
+            if args.user is not None:
+                authentication = 'SIMPLE' if args.authtype == 'SIMPLE' else NTLM
+            c = Connection(server, user=args.user, password=args.password,
+                           authentication=authentication, auto_referrals=False)
+        try:
+            if not c.bind():
+                raise RuntimeError('Bind failed: %s' % c.result)
+        except ldap3.core.exceptions.LDAPPackageUnavailableError as e:
+            raise RuntimeError("Kerberos auth needs the 'gssapi' and 'cryptography' "
+                               "packages: pipx inject ldapdomaindump kerberos") from e
     return c
 
 
@@ -960,13 +980,18 @@ def main():
     parser.add_argument("-u", "--user", metavar='USERNAME', help="DOMAIN\\username")
     parser.add_argument("-p", "--password", metavar='PASSWORD', help="Password or LM:NTLM hash")
     parser.add_argument("-at", "--authtype", choices=['NTLM', 'SIMPLE'], default='NTLM')
+    parser.add_argument("-k", "--kerberos", action='store_true',
+                        help="Use Kerberos (GSSAPI) from your existing ccache (kinit first); "
+                             "-u/-p are ignored. HOSTNAME must be the DC FQDN (or ldaps://FQDN) - "
+                             "an IP cannot be resolved to an SPN. Needs the 'kerberos' extra: "
+                             "pipx inject ldapdomaindump kerberos")
 
     og = parser.add_argument_group("Output options")
     og.add_argument("-o", "--outdir", metavar='DIRECTORY')
     og.add_argument("--no-html", action='store_true')
     og.add_argument("--no-json", action='store_true')
     og.add_argument("--no-grep", action='store_true')
-    og.add_argument("--grouped-json", action='store_true', default=False)
+    og.add_argument("--grouped-json", action='store_true')
     og.add_argument("-d", "--delimiter")
 
     mg = parser.add_argument_group("Misc options")
@@ -1016,7 +1041,14 @@ def main():
     cnf.grouped = not args.no_grouped
     cnf.dcs = [h.strip() for h in args.dc.split(',')] if args.dc else None
 
-    if args.user is not None:
+    if args.kerberos:
+        if args.user or args.password is not None:
+            log_warn('-u/-p ignored in Kerberos mode (GSSAPI uses your ccache)')
+        if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', args.host):
+            log_warn('HOSTNAME is an IP address: Kerberos needs the DC FQDN to build '
+                     "the SPN (ldap/<host>), the bind will likely fail with "
+                     "'Server not found in Kerberos database'. Use e.g. ldaps://dc01.corp.local:636")
+    elif args.user is not None:
         if '\\' not in args.user and args.authtype != 'SIMPLE':
             log_warn('Username must include a domain, use: DOMAIN\\username')
             sys.exit(1)

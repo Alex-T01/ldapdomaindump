@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ldapdomaindump"
-version = "0.12.0"
+version = "0.12.1"
 description = "Active Directory information dumper via LDAP (patched: streaming/low-memory + parallel collection)"
 authors = [
   { name = "Dirk-jan Mollema", email = "dirkjan@dirkjanm.io" }
@@ -18,6 +18,9 @@ dependencies = [
   "ldap3>=2.5,!=2.5.2,!=2.5.0,!=2.6"
 ]
 
+[project.optional-dependencies]
+kerberos = ["gssapi", "cryptography"]
+
 [tool.setuptools.packages.find]
 include = ["ldapdomaindump"]
 
@@ -27,11 +30,11 @@ ldapdomaindump = ["style.css"]
 [project.scripts]
 # `ldapdomaindump` now dispatches to the streaming/parallel collector
 # (ldd_stream.py) - parity with the upstream implementation (byte-identical
-# JSON/BloodHound CSV output) was proven against a real lab domain first, see
-# HANDOFF.md §0ter/§0quater. ldd_stream's CLI is a strict superset of
-# upstream's (every original flag still does the same thing; --paged-size/
-# --sequential/--shard-usn/--dc/--resolve-threads/--no-grouped are new), so
-# no existing invocation of `ldapdomaindump` changes behavior or breaks.
+# JSON/BloodHound CSV output) was proven against a real lab domain first.
+# ldd_stream's CLI is a strict superset of upstream's (every original flag
+# still does the same thing; --paged-size/--sequential/--shard-usn/--dc/
+# --resolve-threads/--no-grouped/-k are new), so no existing invocation of
+# `ldapdomaindump` changes behavior or breaks.
 # ldapdomaindump-original is kept as an explicit escape hatch to the
 # untouched upstream implementation (ldapdomaindump/__init__.py, still
 # byte-for-byte unmodified) if it's ever needed for comparison/troubleshooting.
