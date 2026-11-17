@@ -42,3 +42,40 @@
 - Sorties du dump (standard + parallel) : purgées en fin de session
   (éphémères, le test est reproductible avec les creds lab).
 - Cette archive fait foi pour le comportement Server 2025/LDAPS.
+
+## Session du 2026-11-17 — tests NTLM/PTH/Kerberos + fix race schéma
+
+### Résultats
+- **Race de schéma trouvée et fixée** (le vrai bug de la session) : en mode
+  parallel, plusieurs binds concurrents sur le même `Server(get_info=ALL)`
+  ; `_get_schema_info()` de ldap3 pose `_schema_info = None` PENDANT la
+  reconstruction (ldap3/core/server.py ~499), un connection bindée à cet
+  instant décode tout sans schéma → int/dates/SID en strings brutes.
+  Repro : 3/5 runs parallel dégradés, 0/5 en --sequential. Fix : lock
+  `_server_info_lock` dans `_build_connection` (choke point unique).
+  Post-fix : 5/5 runs parallel typés.
+- **`-k/--kerberos` ajouté** (GSSAPI via ccache, style BloodHound.py).
+  Pièges : HOSTNAME doit être le FQDN du DC (SPN ldap/<host> — sinon
+  « Server not found in Kerberos database » avec un IP) ; `cryptography`
+  requis pour les channel bindings TLS sur LDAPS ; extra
+  `[kerberos]` = gssapi+cryptography ; `pipx inject ldapdomaindump kerberos`.
+- **Parité totale prouvée** sur DC01 Server 2025 (ldaps://) : NTLM mdp,
+  NTLM hash LM:NTLM (PTH — ldap3 utils/ntlm.py split ':' 32hex), Kerberos
+  → mêmes DN-sets, mêmes attributs, mêmes formes/valeurs (hors volatiles
+  lastLogon/logonCount/badPwdCount/badPasswordTime).
+- ldap3 : GSSAPI = `Connection(s, authentication=SASL, sasl_mechanism=GSSAPI)`
+  (pas authentication=GSSAPI → LDAPUnknownAuthenticationMethodError) ;
+  `sasl_credentials=['DC01.lab01.local']` pour forcer le target name.
+
+### Pistes mortes
+- « Types différents selon auth » : première fausse piste (schema NTLM vs
+  GSSAPI) — le schéma était OUI des deux côtés ; c'était la race parallel,
+  découvert en comparant seq vs par sur plusieurs runs.
+- `Connection(authentication=GSSAPI)` : refusé par ldap3 2.9.1 (liste
+  blanche [SIMPLE, ANONYMOUS, SASL, NTLM] dans Connection.__init__).
+- krb5.conf système = MIT Athena par défaut du lab Debian → passer
+  KRB5_CONFIG vers un conf dédié (kdc = IP du DC) pour kinit.
+
+### État final
+- pipx 0.12.1 + extra kerberos injecté. Push `f5fef1e` sur dev.
+- Artifacts lab purgés (krbtest/*).
