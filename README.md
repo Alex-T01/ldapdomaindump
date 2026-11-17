@@ -103,6 +103,25 @@ Scaling options (new):
 ### Authentication
 Most AD servers support NTLM authentication. In the rare case that it does not, use --authtype SIMPLE.
 
+### Hardened DCs: LDAP signing and LDAPS
+Domain controllers that require LDAP channel signing (the **default on
+Windows Server 2025 and later**, and a common hardening GPO before that)
+reject NTLM binds on plain `ldap://389` with `strongerAuthRequired`. ldap3
+does not implement NTLM signing, so the fix is TLS, not signing: point the
+tool at LDAPS by prefixing the host with the `ldaps://` scheme (port 636):
+
+```bash
+ldapdomaindump -u 'CORP\user' -p 'password' ldaps://dc01.corp.local:636 -o dump/
+```
+
+The scheme is propagated to every `--dc` entry that doesn't carry its own
+(and to the sharding/producer connections), so `--shard-usn 8 --dc dc01...`
+keeps using LDAPS automatically when HOSTNAME had it. Note that anonymous
+binds and root-DSE reads still work on 389 on such DCs — only the
+authenticated bind is refused — so a bind failure with `invalidCredentials`
+rather than `strongerAuthRequired` means the credentials are wrong (or the
+account locked), not that signing is the problem.
+
 ### Output formats
 By default the tool outputs all files in HTML, JSON and tab delimited output (greppable). There are also two grouped files (users_by_group and computers_by_os) for convenience. These do not have a greppable output. JSON output for grouped files is disabled by default since it creates very large files without any data that isn't present in the other files already.
 
@@ -142,8 +161,7 @@ ldapdomaindump-original           # explicit opt-out: the untouched classic impl
 ```
 
 Output files/format are **identical** either way (verified byte-for-byte
-against a real test domain before switching the default — see
-`HANDOFF.md` §0ter if you want the full parity methodology), so
+against a real test domain before switching the default), so
 `ldd2bloodhound` / `ldd2pretty` work the same regardless of which one produced
 the dump.
 
@@ -187,9 +205,8 @@ against a different DC's numbering. Passing `--dc` with more than one
 *distinct* host together with `--shard-usn > 1` is refused (`RuntimeError`)
 rather than silently producing a wrong dump — this was tried against a real
 2-DC lab and it duplicated one object while dropping four others, with no
-error, before the guard was added (see `HANDOFF.md` §0quater for the full
-story). `--dc` with a single host, at any `--shard-usn`, is unaffected — it's
-just "run this DC instead of HOSTNAME".
+error, before the guard was added. `--dc` with a single host, at any
+`--shard-usn`, is unaffected — it's just "run this DC instead of HOSTNAME".
 
 ### Examples
 
@@ -215,9 +232,11 @@ All classic flags are supported (`-u/-p/-at`, `-o`, `--no-html/--no-json/--no-gr
 
 - Correctness (identical output vs. upstream, field decoding, DNS resolution,
   auth methods, single- and multi-DC `--dc` usage) has been validated against
-  a real Active Directory lab. Memory and speed **at real scale** (tens of
-  thousands of objects) have not — the lab used had on the order of a
-  hundred objects total, too small for either to be more than noise. The
+  real Active Directory labs, including a Windows Server 2025 DC with LDAP
+  signing required (`ldaps://`, ~550 objects, standard and `--shard-usn 4`
+  runs with identical object sets). Memory and speed **at real scale** (tens
+  of thousands of objects) have not — the largest lab used was on the order
+  of a few hundred objects, too small for either to be more than noise. The
   design should hold (see "Why it does not blow up" above), but treat the
   memory/speed claims as unverified until tried on a domain that size.
 - `--shard-usn` only shards within a single DC — see above.
