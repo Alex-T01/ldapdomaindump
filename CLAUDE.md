@@ -6,8 +6,9 @@ the patch: a streaming, low-memory, parallel collector for large AD domains.
 Output format is identical to upstream (`ldd2bloodhound` / `ldd2pretty` still
 work). As of v0.12.0 the `ldapdomaindump` command itself runs `ldd_stream.py`
 by default; `ldapdomaindump-original` reaches the untouched implementation.
-See `CHANGELOG.md` for version history and `README.md` for usage/known
-limitations.
+v0.12.1 added `-k` (Kerberos/GSSAPI via ccache) and fixed a parallel-mode
+schema race (see CHANGELOG). See `CHANGELOG.md` for version history and
+`README.md` for usage/known limitations.
 
 ## Conventions / ground rules
 - **Do not modify `ldapdomaindump/__init__.py`** (the classic tool) unless a fix
